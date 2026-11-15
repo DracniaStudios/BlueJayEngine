@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+# Add find_dependency(...) lines here when a backend's third-party library
+# becomes part of BlueJay's public link interface (for example
+# find_dependency(raylib) once the raylib backend lands).
+
+include("${CMAKE_CURRENT_LIST_DIR}/BlueJayTargets.cmake")
+
+check_required_components(BlueJay)

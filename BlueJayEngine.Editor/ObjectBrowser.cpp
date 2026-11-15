@@ -1,0 +1,521 @@
+#include "WorldEditor.h"
+
+#include <algorithm>
+#include <vector>
+
+namespace Editor {
+
+namespace
+{
+	constexpr ImVec4 kHeaderColour = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+
+	/**
+	 * One "<Label>  [All] [None]" row that applies a state to the whole world.
+	 *
+	 * set is called as set(object, value) so a row can reach a field on the
+	 * GameObject or on its RigidBody3D without needing a separate helper for
+	 * each. The label doubles as the ImGui ID, so two rows cannot collide and a
+	 * row's ID does not move when the world changes underneath it.
+	 */
+	template <class Set>
+	void ApplyAllRow(SceneManagement::Scene* scene, const char* label, Set set)
+	{
+		ImGui::PushID(label);
+		ImGui::TextUnformatted(label);
+		ImGui::SameLine();
+		if (ImGui::Button("All"))
+		{
+			std::cout << "[Object Browser] " << label << ": all\n";
+			scene->gameMap.ForEachObject([&](GameObject& object) { set(object, true); });
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("None"))
+		{
+			std::cout << "[Object Browser] " << label << ": none\n";
+			scene->gameMap.ForEachObject([&](GameObject& object) { set(object, false); });
+		}
+		ImGui::PopID();
+	}
+}
+
+
+
+void WorldEditor::showInteractableObject(InteractableObject* object) {
+	ImGui::PushID(object);
+	ImGui::Separator();
+	ImGui::TextColored(ImVec4(1, 0, 1, 1), "Interactable");
+	ImGui::Checkbox("Interactable", &object->isInteractable);
+
+	ImGui::Text("Interact Type: %s", interactTypeToString(object->interactType));
+	int stageInteractType = static_cast<int>(object->interactType);
+	if (ImGui::InputInt("InteractType", &stageInteractType)) {
+		object->interactType = static_cast<InteractionType>(stageInteractType);
+	}
+
+	// MiniGame Variables 
+	if (object->interactType == INTERACT_MINIGAME) {
+		ImGui::InputInt("Variation", &object->variation);
+		ImGui::TextDisabled("%s", miniGameIdToString(object->variation));
+		ImGui::Checkbox("MiniGame Running", &object->isRunningMiniGame);
+		ImGui::Checkbox("Completed", &object->isCompleted);
+		// Worth stating outright: the Director stops hinting toward a station the
+		// moment this is ticked, so it doubles as the switch for testing whether
+		// hinting moves on to the next outstanding objective.
+		ImGui::TextDisabled("Completed stations are skipped by the Director");
+	}
+
+	// The Target: what this station's MiniGame enables or disables when won
+	if (object->interactType == INTERACT_MINIGAME) {
+		ImGui::InputScalar("MiniGame Target", ImGuiDataType_U64, &object->targetId);
+
+		// A Target id nothing resolves to is reported rather than dereferenced
+		GameObject* target = object->FindMiniGameTarget(editedScene->gameMap);
+		if (object->targetId == 0) { ImGui::TextDisabled("None (toggles itself)"); }
+		else if (target != nullptr) { ImGui::TextDisabled("%s", target->name.c_str()); }
+		else { ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Missing: nothing has id %llu", static_cast<unsigned long long>(object->targetId)); }
+
+		const bool picking = targetPickStationId == object->id;
+		if (ImGui::Button(picking ? "Click the Target in the viewport (Esc cancels)" : "Pick Target")) {
+			targetPickStationId = picking ? 0 : object->id;
+			statusMessage = picking ? "Target pick cancelled" : "Click the object this station's MiniGame toggles";
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Clear Target")) { object->targetId = 0; }
+	}
+
+	if (object->interactType == INTERACT_ITEM) {
+		ImGui::InputInt("Activator Value", &object->activator);
+		if (ImGui::Button("Self Activator")) { object->activator = object->id; }
+	}
+
+	ImGui::PopID();
+}
+
+void WorldEditor::showEntity(Entity* object) {
+	ImGui::PushID(object);
+	ImGui::Separator();
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "Entity");
+
+	// Status
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Status");
+	ImGui::Text("Health: %f", object->health);
+	ImGui::Text("Max Health: %f", object->maxHealth);
+
+	ImGui::Text("Stamina: %f", object->stamina);
+	ImGui::Text("Max Stamina: %f", object->maxStamina);
+
+	ImGui::Text("Speed: %f", object->baseSpeed);
+	ImGui::Text("Max Speed: %f", object->currentSpeed);
+	ImGui::Spacing();
+
+	// Flags
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Flags");
+	ImGui::Checkbox("IsSprinting", &object->isSprinting);
+	ImGui::Checkbox("IsCrouching", &object->isCrouching);
+	ImGui::Checkbox("IsFiring", &object->isFiring);
+	ImGui::Checkbox("ForceFire", &object->forceFire);
+	ImGui::Checkbox("CanAttack", &object->canAttack);
+	ImGui::Spacing();
+
+	// List Of Buffs
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Buffs");
+	for (auto& buff : object->buffTimers) {
+		ImGui::PushID(&buff);
+		ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "%s", buffTypeToString(buff.cooldownID));
+		ImGui::Text("Duration: %f", buff.remaining_time());
+		ImGui::SameLine();
+		if (ImGui::Button("Use Buff")) { buff.use(); }
+		ImGui::PopID();
+	}
+
+	if (ImGui::Button("Teleport To Player")) {
+		object->rigidBody3D.Teleport(editedScene->player->getPosition());
+	}
+	if (ImGui::Button("Teleport To Camera")) {
+		object->rigidBody3D.Teleport(SceneManagement::SceneManager::getInstance().camera3D.position);
+	}
+
+	auto spawnPoint = object->getSpawnPoint();
+	if (ImGui::InputFloat3("Spawn Position", &spawnPoint.x)) {
+		object->setSpawnPoint(spawnPoint);
+	}
+
+	ImGui::PopID();
+}
+
+void WorldEditor::showGameObject(GameObject* object) {
+	ImGui::PushID(object);
+
+	std::string dataString = objectTypeToString(object->type);
+	dataString += " Data";
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "%s", dataString.c_str());
+	
+	char nameBuffer[128] = {};
+	std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", object->name.c_str());
+	if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer))) { object->name = nameBuffer; }
+
+	ImGui::Text("ID: %llu", static_cast<unsigned long long>(object->id));
+	ImGui::Text("Type: %d", static_cast<int>(object->type));
+	ImGui::Checkbox("Selectable", &object->isSelectable);
+	ImGui::Spacing();
+
+
+	// Transform (Teleport keeps the collision box in sync with the new position)
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Transform");
+	Vector3 position = object->getPosition();
+	if (ImGui::DragFloat3("Position: ", &position.x))
+	{
+		object->rigidBody3D.Teleport(position);
+	}
+	ImGui::SameLine();
+	ImGui::Checkbox("Lock Position", &object->rigidBody3D.lockTranslation);
+
+	// Rotation edits go through cached Euler degrees (see WorldEditor.h). Resync
+	// from the quaternion only when the selection changed or something else moved
+	// the rotation out from under us — angular velocity, a scene load, a script.
+	const Quaternion currentRotation = object->getRotation();
+	if (rotationEulerOwnerId != object->id || currentRotation != rotationEulerSource)
+	{
+		const Vector3 euler = QuaternionToEuler(currentRotation);
+		rotationEulerDegrees = { euler.x * RAD2DEG, euler.y * RAD2DEG, euler.z * RAD2DEG };
+		rotationEulerOwnerId = object->id;
+		rotationEulerSource = currentRotation;
+	}
+	// Drag to scrub a degree at a time, ctrl+click to type an exact angle
+	if (ImGui::DragFloat3("Rotation (deg): ", &rotationEulerDegrees.x, 1.0f))
+	{
+		const Quaternion rotation = QuaternionNormalize(QuaternionFromEuler(
+			rotationEulerDegrees.x * DEG2RAD,   // pitch (X)
+			rotationEulerDegrees.y * DEG2RAD,   // yaw   (Y)
+			rotationEulerDegrees.z * DEG2RAD)); // roll  (Z)
+		object->rigidBody3D.rotation = rotation;
+		rotationEulerSource = rotation;
+	}
+	ImGui::SameLine();
+	ImGui::Checkbox("Lock Rotation", &object->rigidBody3D.lockRotation);
+	
+	// Scale is applied through the model transform each frame — no mesh regen needed
+	if (ImGui::DragFloat3("Scale: ", &object->rigidBody3D.scale.x))
+	{
+		// Every other scale path clamps (the gizmo, ApplyTransform, SpawnStagedObject). 
+		object->rigidBody3D.scale = SanitizeScale(object->rigidBody3D.scale);
+	}
+	ImGui::Spacing();
+
+	// RigidBody
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "RigidBody");
+	Vector3 velocity = object->rigidBody3D.GetVelocity();
+	if (ImGui::InputFloat3("Velocity: ", &velocity.x))
+	{
+		object->rigidBody3D.velocity = velocity;
+	}
+	ImGui::SameLine();
+	ImGui::Checkbox("Lock Velocity", &object->rigidBody3D.lockVelocity);
+
+	Vector3 acceleration = object->rigidBody3D.GetAcceleration();
+	if (ImGui::InputFloat3("Acceleration: ", &acceleration.x))
+	{
+		object->rigidBody3D.acceleration = acceleration;
+	}
+	ImGui::SameLine();
+	ImGui::Checkbox("Lock Acceleration", &object->rigidBody3D.lockAcceleration);
+
+	Vector3 angularVelocity = object->rigidBody3D.angularVelocity;
+	if (ImGui::InputFloat3("Angular Velocity: ", &angularVelocity.x))
+	{
+		object->rigidBody3D.angularVelocity = angularVelocity;
+	}
+	ImGui::SameLine();
+	ImGui::Checkbox("Lock Angular Velocity", &object->rigidBody3D.lockAngularVelocity);
+	ImGui::Spacing();
+
+	ImGui::Text("Air Time: %f", object->rigidBody3D.GetAirTime());
+	ImGui::Spacing();
+
+	// Collider — the collision volume, which is deliberately not the render scale
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Collider");
+	Collider3D& collider = object->rigidBody3D.collider;
+
+	// Label arrays sized by the enum's own _COUNT, following LightingInspector,
+	// so adding a shape later cannot silently desync the labels from the values.
+	const char* shapeLabels[COLLIDER_SHAPE_COUNT] = {};
+	for (int i = 0; i < COLLIDER_SHAPE_COUNT; ++i) { shapeLabels[i] = colliderShapeToString(i); }
+	const char* modeLabels[COLLIDER_MODE_COUNT] = {};
+	for (int i = 0; i < COLLIDER_MODE_COUNT; ++i) { modeLabels[i] = colliderModeToString(i); }
+
+	int shapeIndex = static_cast<int>(collider.shape);
+	if (ImGui::Combo("Shape", &shapeIndex, shapeLabels, COLLIDER_SHAPE_COUNT))
+	{
+		collider.shape = static_cast<ColliderShape>(shapeIndex);
+		// Switching to Mesh should show the fitted volume straight away rather than
+		// leaving the last hand-authored size sitting on screen looking authoritative
+		if (collider.shape == COLLIDER_MESH) { 
+			collider.FitToModel(object->model);
+			object->rigidBody3D.broadPhaseBox = GetModelBoundingBox(object->model);
+		}
+
+	}
+
+	int modeIndex = static_cast<int>(collider.mode);
+	if (ImGui::Combo("Mode", &modeIndex, modeLabels, COLLIDER_MODE_COUNT))
+	{
+		collider.mode = static_cast<ColliderMode>(modeIndex);
+	}
+	ImGui::TextDisabled("%s", collider.isTrigger()
+		? "Reports overlaps, applies no physics."
+		: "Resolves overlaps through the rigid body.");
+
+	if (collider.shape == COLLIDER_SPHERE)
+	{
+		if (ImGui::DragFloat("Radius", &collider.radius, 0.01f))
+		{
+			collider.radius = fmaxf(collider.radius, MINIMUM_COLLIDER_EXTENT);
+		}
+	}
+	else if (collider.shape == COLLIDER_MESH)
+	{
+		// Derived from the model's own bounds, so presenting it as editable would
+		// be a lie — the next loadVisuals() would overwrite anything typed here
+		ImGui::BeginDisabled();
+		ImGui::DragFloat3("Size (fitted)", &collider.size.x);
+		ImGui::EndDisabled();
+	}
+	else
+	{
+		if (ImGui::DragFloat3("Size", &collider.size.x, 0.01f))
+		{
+			// A zero or negative extent inverts the volume, and per EditorPicking.h
+			// an inverted box is neither collidable nor clickable — the object goes
+			// silently inert with nothing on screen to explain why.
+			collider.size = SanitizeColliderSize(collider.size);
+		}
+	}
+
+	ImGui::DragFloat3("Offset", &collider.offset.x, 0.01f);
+
+	if (ImGui::Button("Fit To Model")) { collider.FitToModel(object->model); }
+	ImGui::SameLine();
+	if (ImGui::Button("Reset Collider"))
+	{
+		// Back to the volume the body had before colliders existed, keeping the
+		// mode — resetting the shape is the common need, changing solid to trigger
+		// by accident is not.
+		const ColliderMode keptMode = collider.mode;
+		collider = {};
+		collider.mode = keptMode;
+	}
+
+	// The World Editor freezes the simulation, so nothing else is refreshing the
+	// broad-phase box while these fields are being dragged — and mouse picking
+	// and the debug draw both read it.
+	object->rigidBody3D.SyncBroadPhaseBox();
+	ImGui::Spacing();
+
+	Vector4 color = Vector4(
+		object->defaultColor.r,
+		object->defaultColor.g,
+		object->defaultColor.b,
+		object->defaultColor.a);
+	// ImVec4 color channels are normalized 0-1, unlike the 0-255 Color/Vector4 above.
+	ImGui::TextColored(ImVec4(color.x / 255.0f, color.y / 255.0f, color.z / 255.0f, color.w / 255.0f), "Color");
+	if (ImGui::InputFloat4("Color", &color.x)) {
+		object->defaultColor = Color(
+			color.x,
+			color.y,
+			color.z,
+			color.w
+		);
+	}
+	// Texture
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Texture");
+	// A model whose load failed can carry materialCount == 0 with a null
+	// materials array (see LightingSystem::ApplyToModel's same guard) —
+	// indexing materials[0] unconditionally would crash the inspector on it.
+	if (object->model.materialCount > 0 && object->model.materials != nullptr)
+	{
+		ImGui::Image((ImTextureRef)(intptr_t)object->model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture.id, ImVec2(64, 64));
+	}
+	ImGui::Text("Texture: %s", object->textureName.empty() ? "None" : object->textureName.c_str());
+	AssetManager::Asset* activeTexture = getActiveTexture();
+	if (activeTexture != nullptr && ImGui::Button("Apply Active Texture"))
+	{
+		object->setTexture(activeTexture->name);
+	}
+	ImGui::Spacing();
+
+	// Model
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Model");
+	ImGui::Text("Model: %s", object->modelName.empty() ? "Cube" : object->modelName.c_str());
+	AssetManager::Asset* activeModel = getActiveModel();
+	if (activeModel != nullptr && ImGui::Button("Apply Active Model"))
+	{
+		object->setModel(activeModel->name);
+	}
+	if (!object->modelName.empty() && ImGui::Button("Reset To Cube"))
+	{
+		object->setModel("");
+	}
+
+	/*
+	char* soundName;
+	if (ImGui::InputText("Default Sound", soundName, 128)) {
+		object->defaultSound = soundName;
+	}
+	char* parameterName = {};
+	if (ImGui::InputText("Parameter Name", parameterName, 128)) {
+		object->defaultSound = parameterName;
+	}
+	*/
+	ImGui::InputInt("Parameter Value", &object->soundParameterValue, 1, 1);
+	ImGui::Checkbox("IsLooping", &object->isLooping);// Not Implemented
+
+	ImGui::Spacing();
+
+	// Object Flags
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Flags");
+	ImGui::Checkbox("isEnabled", &object->rigidBody3D.isEnabled);
+	ImGui::Checkbox("isStatic", &object->rigidBody3D.isStatic);
+	ImGui::Checkbox("isVisible", &object->display3DModel);
+	ImGui::Checkbox("isDestructible", &object->isDestructible);
+	ImGui::Checkbox("Can Collide", &object->rigidBody3D.collider.canCollide);
+
+	ImGui::Separator();
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Debug");
+	ImGui::Checkbox("Show Collider", &object->displayCollider);
+	ImGui::Checkbox("Show Direction", &object->displayDirection);
+
+	// Status
+	ImGui::Text("Life Span: %f", object->lifeSpan);
+	ImGui::Text("Death Span: %f", object->deathSpan);
+	ImGui::Spacing();
+	ImGui::PopID();
+}
+
+static void ShowStateButtons(SceneManagement::Scene* scene)
+{
+	ApplyAllRow(scene, "Enabled",        [](GameObject& o, bool v) { o.isEnabled = v; });
+	ApplyAllRow(scene, "Selectable",     [](GameObject& o, bool v) { o.isSelectable = v; });
+	ApplyAllRow(scene, "Destructible",   [](GameObject& o, bool v) { o.isDestructible = v; });
+	ApplyAllRow(scene, "Static",         [](GameObject& o, bool v) { o.rigidBody3D.isStatic = v; });
+	ApplyAllRow(scene, "Can Collide",    [](GameObject& o, bool v) { o.rigidBody3D.collider.canCollide = v; });
+	ApplyAllRow(scene, "Show Collider",  [](GameObject& o, bool v) { o.displayCollider = v; });
+	ApplyAllRow(scene, "Show Direction", [](GameObject& o, bool v) { o.displayDirection = v; });
+
+	ImGui::Spacing();
+	if (ImGui::Button("Fit Model To Collider"))
+	{
+		std::cout << "[Object Browser] Fit Model To Collider\n";
+		scene->gameMap.ForEachObject([](GameObject& o) { o.rigidBody3D.collider.FitToModel(o.model); });
+	}
+}
+
+namespace
+{
+	// GameMap's containers are private and no longer share one element shape
+	// (gameObjects is value-stored, entities/interactables own via unique_ptr) —
+	// callers gather a snapshot of GameObject* through ForEach* and hand that
+	// uniform list here instead.
+	void ObjectList(const char* displayName, const std::vector<GameObject*>& objects, bool& show, std::uint64_t& selectID)
+	{
+		ImGui::PushID(displayName);
+		ImGui::TextColored(kHeaderColour, "%s", displayName);
+		ImGui::SameLine();
+
+		// The arrow's ID is the list name, not its current caption. Deriving it
+		// from the caption changes the widget's identity the frame it is clicked,
+		// which is how an ImGui ID stack starts drifting.
+		if (ImGui::ArrowButton("toggle", show ? ImGuiDir_Down : ImGuiDir_Left)) { show = !show; }
+
+		if (show)
+		{
+			for (GameObject* object : objects)
+			{
+				ImGui::PushID(object);
+				const std::string label = object->name + " (" + std::to_string(object->id) + ")";
+				if (ImGui::Selectable(label.c_str(), object->id == selectID)) { selectID = object->id; }
+				ImGui::PopID();
+			}
+		}
+		ImGui::PopID();
+	}
+}
+
+static void ShowObjectList(SceneManagement::Scene* scene, std::uint64_t& selectID, bool& objects, bool& entities, bool& interactable)
+{
+	// Display order is this panel's own concern — GameMap's storage is
+	// unordered and owes none (see ForEachGameObject). Sorted by id descending
+	// to match the order the Ctrl+2 hotkey used to force by sorting GameMap's
+	// storage in place, before that container became unsortable by design.
+	std::vector<GameObject*> gameObjectList;
+	scene->gameMap.ForEachGameObject([&](GameObject& object) { gameObjectList.push_back(&object); });
+	std::sort(gameObjectList.begin(), gameObjectList.end(),
+		[](const GameObject* a, const GameObject* b) { return a->id > b->id; });
+
+	std::vector<GameObject*> entityList;
+	scene->gameMap.ForEachEntity([&](Entity& entity) { entityList.push_back(&entity); });
+
+	std::vector<GameObject*> interactableList;
+	scene->gameMap.ForEachInteractable([&](InteractableObject& interactable) { interactableList.push_back(&interactable); });
+
+	ObjectList("Game Objects", gameObjectList, objects, selectID);
+	ObjectList("Entities", entityList, entities, selectID);
+	ObjectList("Interactables", interactableList, interactable, selectID);
+}
+
+void WorldEditor::showSelectedObject(SceneManagement::Scene* scene) {
+	GameObject* object = getSelectedObject();
+	if (object == nullptr)
+	{
+		ImGui::Text("Nothing selected");
+		return;
+	}
+
+	// Show Object Data
+
+	// Push ID in GameObject
+	showGameObject(object);
+	
+	if (object->type == OBJECT_ENTITY) {
+		if (Entity* entity = scene->gameMap.FindEntity(object->id)) { showEntity(entity); }
+	}
+	else if (object->type == OBJECT_INTERACTABLE) {
+		if (InteractableObject* interactable = scene->gameMap.FindInteractable(object->id)) { showInteractableObject(interactable); }
+	}
+
+	// Both route through the shared commands so the buttons, the keyboard
+	// shortcuts and the viewport all take the identical path — including
+	// cancelling any in-flight gizmo drag before the object is destroyed, and
+	// recording the spawn so Ctrl+Z can take it back.
+	if (ImGui::Button("Duplicate Object")) { DuplicateSelection(); }
+	ImGui::SameLine();
+	if (ImGui::Button("Delete Object")) { DeleteSelection(); }
+}
+
+void WorldEditor::ShowObjectBrowser()
+{
+	auto scene = editedScene;
+
+	/// Show Object Browser Window
+	ImGui::Begin("Object Browser");
+
+	// The panel owns how the three regions divide the window; the helpers below
+	// only draw into whatever they are given. Each fraction is of the space still
+	// remaining, so they compose left to right: 0.3 of the window, then 0.4 of the
+	// 0.7 that is left, then everything after that.
+	ImGui::BeginChild("State Buttons", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.3f));
+	ShowStateButtons(scene);
+	ImGui::EndChild();
+	ImGui::Separator();
+
+	ImGui::BeginChild("World Object List", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.4f));
+	ShowObjectList(scene, selectedObjectId, showGameObjects, showEntities, showInteractables);
+	ImGui::EndChild();
+	ImGui::Separator();
+
+	ImGui::BeginChild("Selected Object");
+	showSelectedObject(scene);
+	ImGui::EndChild();
+
+	ImGui::End();
+}
+}

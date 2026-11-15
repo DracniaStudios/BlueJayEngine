@@ -1,0 +1,339 @@
+#include "WorldEditor.h"
+
+#include <LightingSystem.h>
+
+#include <cstdio>
+
+namespace Editor {
+
+namespace
+{
+	// ImGui edits colours as normalized floats; every authored colour in Veil is
+	// a raylib Color. These two keep the conversion in one place.
+	void ColorToFloat3(const Color& color, float* out)
+	{
+		out[0] = color.r / 255.0f;
+		out[1] = color.g / 255.0f;
+		out[2] = color.b / 255.0f;
+	}
+
+	void Float3ToColor(const float* values, Color& color)
+	{
+		color.r = static_cast<unsigned char>(Clamp(values[0], 0.0f, 1.0f) * 255.0f);
+		color.g = static_cast<unsigned char>(Clamp(values[1], 0.0f, 1.0f) * 255.0f);
+		color.b = static_cast<unsigned char>(Clamp(values[2], 0.0f, 1.0f) * 255.0f);
+	}
+
+	// Returns true when the user changed the colour this frame
+	bool EditColor(const char* label, Color& color)
+	{
+		float values[3] = {};
+		ColorToFloat3(color, values);
+		if (!ImGui::ColorEdit3(label, values)) { return false; }
+		Float3ToColor(values, color);
+		return true;
+	}
+
+	// Shadow map sizes a world can ask for. The player's Video > Shadows
+	// setting can only draw it smaller, never larger.
+	constexpr int SHADOW_RESOLUTIONS[4] = { 512, 1024, 2048, 4096 };
+	constexpr const char* SHADOW_RESOLUTION_LABELS[4] = { "512", "1024", "2048", "4096" };
+
+	int ResolutionToIndex(int resolution)
+	{
+		for (int i = 0; i < 4; i++)
+		{
+			if (SHADOW_RESOLUTIONS[i] == resolution) { return i; }
+		}
+		return 2; // 2048
+	}
+}
+
+void WorldEditor::ShowLightingData()
+{
+	auto lighting = &Lighting::LightingSystem::getInstance();
+	auto& lights = lighting->GetLights();
+
+	ImGui::Begin("Lighting");
+
+	/// Diagnostics — the first thing to check when the scene renders unlit
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "Status");
+	if (!lighting->IsReady())
+	{
+		ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Shader failed to load - scene is unlit");
+		ImGui::Text("Expected: resources/shaders/glsl330/lighting.vs + .fs");
+		ImGui::End();
+		return;
+	}
+	ImGui::Text("Shader ID: %u", lighting->GetShader().id);
+	ImGui::Text("Active Lights: %d / %d", lighting->GetActiveLightCount(), Lighting::LIGHT_LIMIT);
+	const int drawnMap = lighting->GetShadowMapResolution();
+	if (drawnMap > 0) { ImGui::Text("Shadow Map: %dx%d", drawnMap, drawnMap); }
+	else { ImGui::Text("Shadow Map: none"); }
+	ImGui::Text("Player Settings: shadows up to %d, exposure x%.2f",
+		lighting->GetPlayerShadowLimit(), lighting->GetPlayerExposure());
+	const int shadowOwner = lighting->GetShadowLightIndex();
+	ImGui::Text("Shadow Caster: %s",
+		(shadowOwner >= 0 && shadowOwner < static_cast<int>(lights.size()))
+			? lights[shadowOwner].name.c_str()
+			: "None");
+	ImGui::Separator();
+
+	/// Gizmos — the in-world position and direction indicators
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "Gizmos");
+	ImGui::Checkbox("Show Light Gizmos", &lighting->showGizmos);
+	ImGui::Checkbox("X-Ray Ranges And Cones", &lighting->gizmoXray);
+	ImGui::TextDisabled("Markers and arrows always draw on top.");
+	ImGui::TextDisabled("X-Ray does the same for ranges and cones.");
+	ImGui::TextDisabled("Gizmos only render while the editor (F1) is open.");
+	ImGui::Separator();
+
+	/// Atmosphere
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "Atmosphere");
+	EditColor("Ambient Color", lighting->ambientColor);
+	ImGui::SliderFloat("Ambient Strength", &lighting->ambientStrength, 0.0f, 1.0f);
+
+	// Changing the fog colour also changes the backbuffer clear colour, since
+	// update_game() clears to it — that is what keeps distance from fading
+	// toward a bright wall.
+	EditColor("Fog Color", lighting->fogColor);
+	ImGui::SliderFloat("Fog Density", &lighting->fogDensity, 0.0f, 0.25f, "%.4f");
+
+	ImGui::SliderFloat("Exposure", &lighting->exposure, 0.0f, 3.0f);
+	ImGui::TextDisabled("The player's Luminosity scales it as drawn; the world saves it as set here.");
+	ImGui::SliderFloat("Specular Strength", &lighting->specularStrength, 0.0f, 2.0f);
+	ImGui::SliderFloat("Shininess", &lighting->shininess, 1.0f, 128.0f);
+	ImGui::Separator();
+
+	/// Shadows
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "Shadows");
+	ImGui::Checkbox("Shadows Enabled", &lighting->shadowsEnabled);
+
+	int resolutionIndex = ResolutionToIndex(lighting->GetShadowResolution());
+	if (ImGui::Combo("Resolution", &resolutionIndex, SHADOW_RESOLUTION_LABELS, 4))
+	{
+		// The map is reallocated at the start of next frame, at this size or at
+		// the player's limit if that is lower; Status shows the size drawn
+		lighting->SetShadowResolution(SHADOW_RESOLUTIONS[resolutionIndex]);
+		statusMessage = "Shadow resolution set to " + std::string(SHADOW_RESOLUTION_LABELS[resolutionIndex]);
+	}
+
+	// Bias trades shadow acne (too low) against peter-panning (too high)
+	ImGui::SliderFloat("Bias", &lighting->shadowBias, 0.0f, 0.02f, "%.5f");
+	// The orthographic extent of the caster camera: smaller = sharper, but the
+	// shadowed area around the player shrinks
+	ImGui::SliderFloat("Distance", &lighting->shadowDistance, 10.0f, 250.0f);
+	ImGui::SliderFloat("Softness", &lighting->shadowSoftness, 0.0f, 4.0f);
+
+	ImGui::TextDisabled("The player's Shadows setting can switch these off or draw a smaller map;");
+	ImGui::TextDisabled("the world saves them as set here.");
+	ImGui::Separator();
+
+	/// Flashlight
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "Flashlight");
+	bool flashlightOn = lighting->IsFlashlightEnabled();
+	if (ImGui::Checkbox("Flashlight On (L)", &flashlightOn)) { lighting->SetFlashlightEnabled(flashlightOn); }
+
+	Lighting::Light& flashlight = lighting->GetFlashlight();
+	EditColor("Beam Color", flashlight.color);
+	ImGui::SliderFloat("Beam Intensity", &flashlight.intensity, 0.0f, 5.0f);
+	ImGui::SliderFloat("Beam Range", &flashlight.range, 1.0f, 120.0f);
+	ImGui::SliderFloat("Beam Inner Cone", &flashlight.innerConeDegrees, 0.0f, 89.0f);
+	ImGui::SliderFloat("Beam Outer Cone", &flashlight.outerConeDegrees, 0.0f, 89.9f);
+	ImGui::Separator();
+
+	/// World Light List
+	ImGui::TextColored(ImVec4(1.0f, 0.0f, 1.0f, 1.0f), "World Lights");
+
+	if (ImGui::Button("Add Point Light At Camera"))
+	{
+		if (static_cast<int>(lights.size()) >= Lighting::LIGHT_LIMIT)
+		{
+			statusMessage = "Light limit reached (" + std::to_string(Lighting::LIGHT_LIMIT) + ")";
+		}
+		else
+		{
+			Lighting::Light light = {};
+			light.name = "Point Light " + std::to_string(lights.size() + 1);
+			light.type = Lighting::LIGHT_POINT;
+			light.position = SceneManagement::SceneManager::getInstance().camera3D.position;
+			lighting->AddLight(light);
+			selectedLightIndex = static_cast<int>(lights.size()) - 1;
+			statusMessage = "Added " + lights.back().name;
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Add Directional"))
+	{
+		if (static_cast<int>(lights.size()) >= Lighting::LIGHT_LIMIT)
+		{
+			statusMessage = "Light limit reached (" + std::to_string(Lighting::LIGHT_LIMIT) + ")";
+		}
+		else
+		{
+			Lighting::Light light = {};
+			light.name = "Directional Light " + std::to_string(lights.size() + 1);
+			light.type = Lighting::LIGHT_DIRECTIONAL;
+			light.intensity = 0.6f;
+			lighting->AddLight(light);
+			selectedLightIndex = static_cast<int>(lights.size()) - 1;
+			statusMessage = "Added " + lights.back().name;
+		}
+	}
+
+	if (ImGui::Button("Reset To Default Rig"))
+	{
+		lighting->CreateDefaultRig();
+		selectedLightIndex = -1;
+		statusMessage = "Installed the default lighting rig";
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Reapply Shader To Scene"))
+	{
+		// Safety net: rebinds the lighting shader onto every material in the
+		// live scene, for objects created while the system was still down
+		lighting->ApplyToScene(editedScene);
+		statusMessage = "Reapplied the lighting shader";
+	}
+
+	if (static_cast<int>(lights.size()) > Lighting::LIGHT_LIMIT)
+	{
+		ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f),
+			"%d lights defined - only the first %d enabled ones are uploaded",
+			static_cast<int>(lights.size()), Lighting::LIGHT_LIMIT);
+	}
+
+	ImGui::BeginChild("Light List", ImVec2(ImGui::GetContentRegionAvail().x, 140.0f));
+	for (int i = 0; i < static_cast<int>(lights.size()); i++)
+	{
+		ImGui::PushID(i);
+		std::string label = lights[i].name + " [" + Lighting::lightTypeToString(lights[i].type) + "]";
+		if (!lights[i].isEnabled) { label += " (off)"; }
+		if (ImGui::Selectable(label.c_str(), i == selectedLightIndex)) { selectedLightIndex = i; }
+		ImGui::PopID();
+	}
+	ImGui::EndChild();
+	ImGui::Separator();
+
+	// Halo the selected light's gizmo. Set before the early-out below so the
+	// highlight clears when the selection goes away.
+	lighting->SetGizmoHighlight(selectedLightIndex);
+
+	// Re-validated every frame: a world load or a delete can shrink the list
+	// out from under the stored index.
+	if (selectedLightIndex < 0 || selectedLightIndex >= static_cast<int>(lights.size()))
+	{
+		ImGui::Text("No light selected");
+		if (!statusMessage.empty()) { ImGui::Text("%s", statusMessage.c_str()); }
+		ImGui::End();
+		return;
+	}
+
+	/// Selected Light
+	Lighting::Light& light = lights[selectedLightIndex];
+	ImGui::PushID(selectedLightIndex);
+	ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Selected Light");
+
+	char nameBuffer[128] = {};
+	std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", light.name.c_str());
+	if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer))) { light.name = nameBuffer; }
+
+	int typeIndex = static_cast<int>(light.type);
+	const char* typeLabels[Lighting::LIGHT_TYPE_COUNT] = { "Directional", "Point", "Spot" };
+	if (ImGui::Combo("Type", &typeIndex, typeLabels, Lighting::LIGHT_TYPE_COUNT))
+	{
+		light.type = static_cast<Lighting::LightType>(typeIndex);
+	}
+
+	ImGui::Checkbox("Enabled", &light.isEnabled);
+
+	// Only one directional light can own the single shadow map, so enabling it
+	// here clears the flag on every other light rather than silently losing.
+	// Gated on LIGHT_DIRECTIONAL: SelectShadowLight() ignores every other type,
+	// so ticking this on a point/spot light must not steal ownership away from
+	// the light that can actually cast one.
+	bool castsShadow = light.castsShadow;
+	if (ImGui::Checkbox("Casts Shadow (directional only)", &castsShadow))
+	{
+		light.castsShadow = castsShadow;
+		if (castsShadow && light.type == Lighting::LIGHT_DIRECTIONAL)
+		{
+			for (int i = 0; i < static_cast<int>(lights.size()); i++)
+			{
+				if (i != selectedLightIndex) { lights[i].castsShadow = false; }
+			}
+			statusMessage = light.name + " now owns the shadow map";
+		}
+		else if (castsShadow)
+		{
+			statusMessage = "Only directional lights can cast shadows";
+		}
+	}
+
+	// A directional light is at infinity, so the shader ignores its position —
+	// but the gizmo has to be anchored somewhere visible, so the field stays
+	// editable under a name that says what it actually does.
+	if (light.type == Lighting::LIGHT_DIRECTIONAL) { ImGui::InputFloat3("Gizmo Anchor", &light.position.x); }
+	else { ImGui::DragFloat3("Position", &light.position.x); }
+
+	// Direction is meaningless for a point light
+	if (light.type != Lighting::LIGHT_POINT) { ImGui::DragFloat3("Direction", &light.direction.x); }
+
+	if (ImGui::Button("Move To Camera"))
+	{
+		const auto camera = &SceneManagement::SceneManager::getInstance().camera3D;
+		light.position = camera->position;
+		light.direction = Vector3Subtract(camera->target, camera->position);
+	}
+
+	EditColor("Color", light.color);
+	ImGui::SliderFloat("Intensity", &light.intensity, 0.0f, 5.0f);
+
+	if (light.type != Lighting::LIGHT_DIRECTIONAL)
+	{
+		// Attenuation reaches exactly zero at `range`, so this is a real
+		// authoring number rather than a physical falloff constant
+		ImGui::SliderFloat("Range", &light.range, 0.5f, 200.0f);
+	}
+
+	if (light.type == Lighting::LIGHT_SPOT)
+	{
+		ImGui::SliderFloat("Inner Cone", &light.innerConeDegrees, 0.0f, 89.0f);
+		ImGui::SliderFloat("Outer Cone", &light.outerConeDegrees, 0.0f, 89.9f);
+	}
+
+	// Snapshotted before the mutating buttons below: AddLight() can reallocate
+	// the vector, which leaves `light` dangling for anything that follows.
+	const std::string selectedName = light.name;
+
+	if (ImGui::Button("Duplicate Light"))
+	{
+		if (static_cast<int>(lights.size()) >= Lighting::LIGHT_LIMIT)
+		{
+			statusMessage = "Light limit reached (" + std::to_string(Lighting::LIGHT_LIMIT) + ")";
+		}
+		else
+		{
+			// Copy by value first for the same reason
+			Lighting::Light copy = light;
+			copy.name += " Copy";
+			copy.castsShadow = false; // Only one light may own the shadow map
+			lighting->AddLight(copy);
+			selectedLightIndex = static_cast<int>(lights.size()) - 1;
+			statusMessage = "Duplicated " + selectedName;
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Delete Light"))
+	{
+		lighting->RemoveLight(selectedLightIndex);
+		selectedLightIndex = -1;
+		statusMessage = "Deleted " + selectedName;
+	}
+
+	ImGui::PopID();
+
+	if (!statusMessage.empty()) { ImGui::Text("%s", statusMessage.c_str()); }
+	ImGui::End();
+}
+}
