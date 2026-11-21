@@ -1,0 +1,20 @@
+/**
+ * @file query/cache/match.h
+ * @brief Match table one or more times with query.
+ */
+
+#ifndef FLECS_QUERY_MATCH_H
+#define FLECS_QUERY_MATCH_H
+
+void flecs_query_cache_match_fini(
+    ecs_query_cache_t *cache,
+    ecs_query_cache_match_t *qm);
+
+bool flecs_query_cache_match_next(
+    ecs_query_cache_t *cache,
+    ecs_iter_t *it);
+
+bool flecs_query_cache_borrows_columns(
+    const ecs_query_cache_t *cache);
+
+#endif

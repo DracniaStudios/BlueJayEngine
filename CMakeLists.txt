@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.25)
 project(BlueJay
   VERSION 0.1.0
   DESCRIPTION "BlueJay Engine - the engine behind Project Veil"
-  LANGUAGES CXX)
+  # C is enabled too: several vendored libraries (SDL, mimalloc, KTX, FreeType,
+  # Sentry, ...) are C, and their targets propagate C feature requirements.
+  LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Options
@@ -61,6 +63,19 @@ endif()
 if(BLUEJAY_HEADLESS)
   target_compile_definitions(bluejay_engine PUBLIC BLUEJAY_HEADLESS=1)
 endif()
+
+# ---------------------------------------------------------------------------
+# Third-party libraries (vendored under Source/ThirdParty, see VERSIONS.md).
+#
+# Linked PRIVATE: backend types stay out of public headers (see
+# cmake/CheckPublicHeaders.cmake). Wrapped in BUILD_INTERFACE because the
+# vendored libraries have no install/export rules of their own; an installed
+# package therefore does not carry them yet. When a backend becomes part of the
+# public link interface, add the matching find_dependency() to
+# cmake/BlueJayConfig.cmake.in.
+# ---------------------------------------------------------------------------
+add_subdirectory(Source/ThirdParty)
+target_link_libraries(bluejay_engine PRIVATE "$<BUILD_INTERFACE:BlueJay::ThirdParty>")
 
 # ---------------------------------------------------------------------------
 # Install + find_package(BlueJay) support
