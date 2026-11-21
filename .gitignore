@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# Vendored third-party sources are tracked as shipped upstream, including the
+# few prebuilt binaries they carry (mimalloc redirect DLLs, crashpad .obj files).
+!/Source/ThirdParty/**
+# ...except files generated into the source tree at build time.
+/Source/ThirdParty/ktx/lib/version.h

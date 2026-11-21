@@ -1,0 +1,70 @@
+/**
+ * @file addons/script/eval/visit_type.h
+ * @brief Script type visitor.
+ */
+
+#ifndef FLECS_SCRIPT_VISIT_TYPE_H
+#define FLECS_SCRIPT_VISIT_TYPE_H
+
+typedef struct ecs_script_type_table_t {
+    int32_t parent;
+    ecs_script_entity_t *owner;
+} ecs_script_type_table_t;
+
+typedef struct ecs_script_type_entity_t {
+    ecs_script_entity_t *node;
+    ecs_script_entity_t *parent_node;
+    ecs_entity_t parent;
+    int32_t child_table;
+    int32_t slot;
+    bool in_template;
+    bool in_for;
+} ecs_script_type_entity_t;
+
+typedef struct ecs_script_type_interface_var_t {
+    int32_t sp;
+    ecs_entity_t interface;
+} ecs_script_type_interface_var_t;
+
+typedef struct ecs_script_type_visitor_t {
+    ecs_script_eval_visitor_t *v;
+    ecs_vec_t tables;
+    ecs_vec_t entities;
+    ecs_vec_t skipped_vars;
+    ecs_vec_t interface_vars;
+    ecs_hashmap_t names;
+
+    int32_t table;
+    int32_t control_depth;
+    int32_t for_depth;
+    int32_t skip_count;
+    int32_t annot_start;
+    bool template_scope;
+    bool function_scope;
+    bool async_scope;
+    ecs_script_entity_t *reopened;
+    bool for_static;
+    bool for_entity;
+} ecs_script_type_visitor_t;
+
+int flecs_script_type_scope(
+    ecs_script_type_visitor_t *t,
+    ecs_script_scope_t *scope,
+    int32_t table,
+    bool push_vars,
+    bool allow_type);
+
+int32_t flecs_script_type_table_new(
+    ecs_script_type_visitor_t *t,
+    int32_t parent,
+    ecs_script_entity_t *owner);
+
+int32_t flecs_script_type_slot_new(
+    ecs_script_type_visitor_t *t,
+    int32_t expected);
+
+bool flecs_script_type_is_skipped_var(
+    ecs_script_type_visitor_t *t,
+    const char *name);
+
+#endif
