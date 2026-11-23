@@ -1,4 +1,4 @@
-#include <bluejay/bluejay.h>
+#include <BlueJay.h>
 
 #include <cstdio>
 #include <cstring>

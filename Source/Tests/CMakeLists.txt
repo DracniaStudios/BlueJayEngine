@@ -7,21 +7,31 @@ add_executable(bluejay_memory_tests core/MemoryTests.cpp)
 target_link_libraries(bluejay_memory_tests PRIVATE BlueJay::Engine)
 add_test(NAME bluejay.core.memory COMMAND bluejay_memory_tests)
 
+# Both rules below cover only the modules in BLUEJAY_MODULES (see the root
+# CMakeLists.txt), i.e. the parts of Source/Runtime that are in the library.
+
 # --- Rule: no backend headers in public headers ----------------------------
-add_test(NAME bluejay.public_headers_clean
-  COMMAND "${CMAKE_COMMAND}"
-          -DINCLUDE_DIR=${PROJECT_SOURCE_DIR}/include
-          -P "${PROJECT_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake")
+foreach(_module IN LISTS BLUEJAY_MODULES)
+  add_test(NAME bluejay.public_headers_clean.${_module}
+    COMMAND "${CMAKE_COMMAND}"
+            -DINCLUDE_DIR=${BLUEJAY_RUNTIME_DIR}/${_module}
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckPublicHeaders.cmake")
+endforeach()
 
 # --- Rule: every public header compiles on its own -------------------------
 # One generated translation unit per header, built as an OBJECT library, so a
 # header with a missing include fails the build.
-file(GLOB_RECURSE BLUEJAY_PUBLIC_HEADERS
-  RELATIVE "${PROJECT_SOURCE_DIR}/include"
-  CONFIGURE_DEPENDS
-  "${PROJECT_SOURCE_DIR}/include/bluejay/*.h"
-  "${PROJECT_SOURCE_DIR}/include/bluejay/*.hpp")
-list(APPEND BLUEJAY_PUBLIC_HEADERS "bluejay/core/Version.h")  # generated
+set(BLUEJAY_PUBLIC_HEADERS
+  "BlueJay.h"        # umbrella
+  "Core/Version.h")  # generated
+foreach(_module IN LISTS BLUEJAY_MODULES)
+  file(GLOB_RECURSE _module_headers
+    RELATIVE "${BLUEJAY_RUNTIME_DIR}"
+    CONFIGURE_DEPENDS
+    "${BLUEJAY_RUNTIME_DIR}/${_module}/*.h"
+    "${BLUEJAY_RUNTIME_DIR}/${_module}/*.hpp")
+  list(APPEND BLUEJAY_PUBLIC_HEADERS ${_module_headers})
+endforeach()
 
 set(_header_check_sources "")
 foreach(_header IN LISTS BLUEJAY_PUBLIC_HEADERS)

@@ -2,12 +2,13 @@
 #
 # Enforces the rule: no third-party backend header appears in a PUBLIC header.
 # Backend types (raylib, SDL3, FMOD, EnTT, GameNetworkingSockets, imgui, ...)
-# live under src/backend/ only, behind opaque handles.
+# stay in private engine code (.cpp files), behind opaque handles.
 #
-# Usage: cmake -DINCLUDE_DIR=<path to include/> -P CheckPublicHeaders.cmake
+# Usage: cmake -DINCLUDE_DIR=<folder of public headers> -P CheckPublicHeaders.cmake
+#        (the tests run it once per module, e.g. Source/Runtime/Core)
 
 if(NOT INCLUDE_DIR)
-  message(FATAL_ERROR "Pass -DINCLUDE_DIR=<path to the include/ folder>")
+  message(FATAL_ERROR "Pass -DINCLUDE_DIR=<folder of public headers>")
 endif()
 
 file(GLOB_RECURSE _headers

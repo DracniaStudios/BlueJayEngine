@@ -1,5 +1,5 @@
-#include <bluejay/core/ArenaAllocator.h>
-#include <bluejay/core/PoolAllocator.h>
+#include <Core/ArenaAllocator.h>
+#include <Core/PoolAllocator.h>
 
 #include <cstddef>
 #include <cstdint>

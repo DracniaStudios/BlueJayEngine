@@ -7,6 +7,10 @@ project(BlueJay
   # Sentry, ...) are C, and their targets propagate C feature requirements.
   LANGUAGES C CXX)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")  # static libs (.lib/.a)
+
 # ---------------------------------------------------------------------------
 # Options
 #
@@ -22,12 +26,26 @@ option(BLUEJAY_HEADLESS
 include(GNUInstallDirs)
 
 # ---------------------------------------------------------------------------
+# Source layout
+#
+# Engine code lives in Source/Runtime/<Module>/, each header next to its .cpp.
+# Source/Runtime is the include root, so includes name the module:
+#   #include <Core/ArenaAllocator.h>
+#
+# BLUEJAY_MODULES lists the modules that are part of the library so far. Only
+# these are installed and covered by the header tests. Add a module here once
+# its code compiles inside BlueJay.
+# ---------------------------------------------------------------------------
+set(BLUEJAY_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/Runtime")
+set(BLUEJAY_MODULES Core)
+
+# ---------------------------------------------------------------------------
 # Generated version header (lives in the build tree, installed with the rest)
 # ---------------------------------------------------------------------------
 set(BLUEJAY_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(
-  include/bluejay/core/Version.h.in
-  "${BLUEJAY_GENERATED_DIR}/bluejay/core/Version.h"
+  Source/Version.h.in
+  "${BLUEJAY_GENERATED_DIR}/Core/Version.h"
   @ONLY)
 
 # ---------------------------------------------------------------------------
@@ -35,7 +53,7 @@ configure_file(
 # the per-module split (see docs/ARCHITECTURE.md).
 # ---------------------------------------------------------------------------
 add_library(bluejay_engine STATIC
-  src/core/Version.cpp
+  Source/Version.cpp
 )
 add_library(BlueJay::Engine ALIAS bluejay_engine)
 
@@ -48,11 +66,9 @@ target_compile_features(bluejay_engine PUBLIC cxx_std_23)
 
 target_include_directories(bluejay_engine
   PUBLIC
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<BUILD_INTERFACE:${BLUEJAY_RUNTIME_DIR}>"
     "$<BUILD_INTERFACE:${BLUEJAY_GENERATED_DIR}>"
-    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
-  PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 
 if(MSVC)
   target_compile_options(bluejay_engine PRIVATE /W4 /permissive-)
@@ -91,12 +107,17 @@ if(BLUEJAY_INSTALL)
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
-  install(DIRECTORY include/
-    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+  foreach(_module IN LISTS BLUEJAY_MODULES)
+    install(DIRECTORY "${BLUEJAY_RUNTIME_DIR}/${_module}/"
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${_module}"
+      FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+  endforeach()
 
-  install(FILES "${BLUEJAY_GENERATED_DIR}/bluejay/core/Version.h"
-    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/bluejay/core")
+  install(FILES "${BLUEJAY_RUNTIME_DIR}/BlueJay.h"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+  install(FILES "${BLUEJAY_GENERATED_DIR}/Core/Version.h"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Core")
 
   install(EXPORT BlueJayTargets
     FILE BlueJayTargets.cmake
@@ -125,5 +146,5 @@ endif()
 # ---------------------------------------------------------------------------
 if(BLUEJAY_BUILD_TESTS)
   enable_testing()
-  add_subdirectory(tests)
+  add_subdirectory(Source/Tests)
 endif()
