@@ -7,6 +7,7 @@ project(BlueJay
   # Sentry, ...) are C, and their targets propagate C feature requirements.
   LANGUAGES C CXX)
 
+set(PRODUCTION_BUILD OFF CACHE BOOL "Production Build" FORCE)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")  # static libs (.lib/.a)
@@ -17,7 +18,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Build")  # static libs (
 # Defaults are chosen so that importing BlueJay from a game (add_subdirectory
 # or FetchContent) adds ONLY the library: no tests, no install rules.
 # ---------------------------------------------------------------------------
-option(BLUEJAY_BUILD_TESTS "Build the BlueJay tests" ${PROJECT_IS_TOP_LEVEL})
+option(BLUEJAY_BUILD_TESTS "Build the BlueJay tests" ON)
+option(BLUEJAY_BUILD_EXAMPLES "Build the example programs in examples/" ON)
 option(BLUEJAY_INSTALL "Generate install rules and find_package(BlueJay) files" ${PROJECT_IS_TOP_LEVEL})
 option(BLUEJAY_HEADLESS
   "Build without window/audio/input backends (tests, CI, servers). Every system must update with rendering off."
@@ -49,12 +51,49 @@ configure_file(
   @ONLY)
 
 # ---------------------------------------------------------------------------
+# CMake Build Optomizations
+# ---------------------------------------------------------------------------
+
+# Enable Hot Reload for MSVC compilers if supported.
+if (POLICY CMP0141)
+  cmake_policy(SET CMP0141 NEW)
+  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
+endif()
+
+if (MSVC)
+	set(CMAKE_MSVC_RUNTINE_LIBRARY "<MultiThreaded$<$<CONFIG:Debug>:Debug>")
+	set(CMAKE_MSVC_RUNTINE_LIBRARY "<MultiThreaded$<$<CONFIG:Release>:Release>")
+	#add_compile_options(arch/AVX2)
+else()
+	#add_compile_options(0mavx2 -CMakeFindDependencyMacro)
+endif()
+
+include (CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+if (ipo_supported)
+	message (STATUS "IPO / LTO enabled")
+	if (PRODUCTION_BUILD)
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)# LINK time optimization
+	else()
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
+	endif()
+else()
+	message(WARNING "IPO / LTO not supported: ${ipo_error}")
+endif()
+# ---------------------------------------------------------------------------
 # The engine library. One target for now; the folder layout already mirrors
 # the per-module split (see docs/ARCHITECTURE.md).
 # ---------------------------------------------------------------------------
+
+# Recursively glob every module under Source/Runtime.
+file(GLOB_RECURSE BLUEJAY_RUNTIME_SOURCES CONFIGURE_DEPENDS
+  "${BLUEJAY_RUNTIME_DIR}/*.cpp"
+  "${BLUEJAY_RUNTIME_DIR}/*.h"
+  "${BLUEJAY_RUNTIME_DIR}/*.hpp")
+
 add_library(bluejay_engine STATIC
   Source/Version.cpp
-)
+  ${BLUEJAY_RUNTIME_SOURCES})
 add_library(BlueJay::Engine ALIAS bluejay_engine)
 
 set_target_properties(bluejay_engine PROPERTIES
@@ -139,6 +178,13 @@ if(BLUEJAY_INSTALL)
     "${CMAKE_CURRENT_BINARY_DIR}/BlueJayConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/BlueJayConfigVersion.cmake"
     DESTINATION "${BLUEJAY_CMAKE_INSTALL_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
+# Examples (opt-in, they open windows)
+# ---------------------------------------------------------------------------
+if(BLUEJAY_BUILD_EXAMPLES)
+  add_subdirectory(examples)
 endif()
 
 # ---------------------------------------------------------------------------
