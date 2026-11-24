@@ -1,5 +1,31 @@
 #include "Renderer.h"
 
+namespace {
+
+struct ClipVertex { float x, y, z, w; };
+
+ClipVertex LerpClip(const ClipVertex& a, const ClipVertex& b, float t) {
+	return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+	         a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t };
+}
+
+// Sutherland-Hodgman against the near plane. Perspective() maps the near plane
+// to clip depth 0, so a vertex is inside when z >= 0 (which also implies w > 0).
+// A triangle clipped by one plane yields at most 4 vertices; returns the count.
+int ClipNear(const ClipVertex in[3], ClipVertex out[4]) {
+	int n = 0;
+	for (int i = 0; i < 3; ++i) {
+		const ClipVertex& cur = in[i];
+		const ClipVertex& nxt = in[(i + 1) % 3];
+		const bool curIn = cur.z >= 0.0f, nxtIn = nxt.z >= 0.0f;
+		if (curIn) out[n++] = cur;
+		if (curIn != nxtIn) out[n++] = LerpClip(cur, nxt, cur.z / (cur.z - nxt.z));
+	}
+	return n;
+}
+
+} // namespace
+
 void Renderer::Clear(uint32_t argb) {
 	std::fill(color_.begin(), color_.end(), argb);
 	std::fill(depth_.begin(), depth_.end(), 1.0f);
@@ -13,23 +39,24 @@ void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model,
 	const Matrix4x4 modelView = view * model;
 	const Matrix4x4 clip = proj * modelView;
 
-	// Per-frame vertex buffer lives in the BlueJay arena.
-	auto* screenVertex = static_cast<ScreenVertex*>(
-		scratch_.allocate(mesh.vertices.size() * sizeof(ScreenVertex), alignof(ScreenVertex)));
-	auto* ok = static_cast<bool*>(scratch_.allocate(mesh.vertices.size(), alignof(bool)));
+	// Per-frame clip-space vertex buffer lives in the BlueJay arena.
+	auto* clipVertex = static_cast<ClipVertex*>(
+		scratch_.allocate(mesh.vertices.size() * sizeof(ClipVertex), alignof(ClipVertex)));
 
 	for (size_t i = 0; i < mesh.vertices.size(); ++i) {
 		float w;
 		const Vector3 c = TransformPoint(clip, mesh.vertices[i], &w);
-		ok[i] = w > 0.01f;  // Trivially reject points behind the camera
-		if (!ok[i]) continue;
-		const float inverseVertex = 1.0f / w;
-		screenVertex[i] = { (c.x * inverseVertex * 0.5f + 0.5f) * float(width_),
-				 (1.0f - (c.y * inverseVertex * 0.5f + 0.5f)) * float(height_), c.z * inverseVertex };
+		clipVertex[i] = { c.x, c.y, c.z, w };
 	}
 
+	// Clip space -> screen space (perspective divide + viewport transform).
+	auto toScreen = [&](const ClipVertex& v) {
+		const float inverseW = 1.0f / v.w;
+		return ScreenVertex{ (v.x * inverseW * 0.5f + 0.5f) * float(width_),
+			(1.0f - (v.y * inverseW * 0.5f + 0.5f)) * float(height_), v.z * inverseW };
+	};
+
 	for (const Triangle& t : mesh.tris) {
-		if (!ok[t.a] || !ok[t.b] || !ok[t.c]) continue;
 
 		// Face normal in view space, for culling and lighting.
 		const Vector3 vertexA = TransformPoint(modelView, mesh.vertices[size_t(t.a)]);
@@ -40,7 +67,22 @@ void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model,
 
 		const float diffuse = std::max(0.0f, DotProduct(normal, lightDir));
 		const float lit = 0.2f + 0.8f * diffuse;  // ambient + diffuse
-		FillTriangle(screenVertex[t.a], screenVertex[t.b], screenVertex[t.c], Pack(t.color * lit));
+		const uint32_t argb = Pack(t.color * lit);
+
+		// Clip against the near plane; a triangle becomes 0, 1 or 2 triangles.
+		const ClipVertex in[3] = { clipVertex[t.a], clipVertex[t.b], clipVertex[t.c] };
+		ClipVertex poly[4];
+		const int n = ClipNear(in, poly);
+		if (n < 3) continue;  // entirely behind the near plane
+
+		// Triangle fan over the clipped polygon.
+		const ScreenVertex first = toScreen(poly[0]);
+		ScreenVertex prev = toScreen(poly[1]);
+		for (int i = 2; i < n; ++i) {
+			const ScreenVertex next = toScreen(poly[i]);
+			FillTriangle(first, prev, next, argb);
+			prev = next;
+		}
 	}
 }
 

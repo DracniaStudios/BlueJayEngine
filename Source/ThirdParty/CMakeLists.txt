@@ -149,6 +149,9 @@ _tp_set(ozz_build_gltf OFF)
 _tp_set(ozz_build_samples OFF)
 _tp_set(ozz_build_howtos OFF)
 _tp_set(ozz_build_tests OFF)
+# Match the DLL CRT the rest of the project uses (ozz defaults to the static CRT, which
+# fails to link with LNK2038 once engine code pulls in std stream symbols).
+_tp_set(ozz_build_msvc_rt_dll ON)
 add_subdirectory("${_TP}/ozz-animation" ozz-animation EXCLUDE_FROM_ALL)
 _tp_register(ozz_base ozz_animation ozz_animation_offline ozz_geometry)
 
