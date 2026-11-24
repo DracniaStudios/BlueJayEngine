@@ -77,6 +77,10 @@ inline Matrix4x4 RotationY(float a) {
 	r.m[2][0] = -std::sin(a); r.m[2][2] = std::cos(a);
 	return r;
 }
+// RotationZ
+
+
+
 // Right-handed, camera looks down -Z, clip depth in [0, 1].
 inline Matrix4x4 Perspective(float fovY, float aspect, float zn, float zf) {
 	const float f = 1.0f / std::tan(fovY * 0.5f);
@@ -122,6 +126,7 @@ struct Mesh {
 struct Color4 { // 0-255
 	unsigned int r, g, b, a;
 };
+
 inline Color4 operator+(const Color4 a, const Color4 b) {
 	auto clamp = [](unsigned int a) {
 		
@@ -129,6 +134,14 @@ inline Color4 operator+(const Color4 a, const Color4 b) {
 		return a;
 	};
 	return { clamp(a.r + b.r), clamp(a.g + b.g), clamp(a.b + b.b), clamp(a.a + b.a) };
+}
+inline Color4 operator-(const Color4 a, const Color4 b) {
+	auto clamp = [](unsigned int a) {
+		
+		if (a > 255) a = 255;
+		return a;
+	};
+	return { clamp(a.r - b.r), clamp(a.g - b.g), clamp(a.b - b.b), clamp(a.a - b.a) };
 }
 
 /// Primitives 
