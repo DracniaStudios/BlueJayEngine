@@ -1,9 +1,8 @@
-# SimpleRenderer - a small software 3D renderer built on BlueJay + SDL3.
-add_executable(simple_renderer main.cpp)
+# SimpleRenderer - a small software 3D renderer built on BlueJay.
+add_executable(simple_renderer main.cpp SpinningShapes.cpp)
 
-# BlueJay::Engine links SDL3 PRIVATE (backend types stay out of engine headers),
-# so an app that opens its own window links SDL3 itself.
-target_link_libraries(simple_renderer PRIVATE BlueJay::Engine SDL3::SDL3-static)
+# The engine owns the window and input, so the example only needs BlueJay.
+target_link_libraries(simple_renderer PRIVATE BlueJay::Engine)
 
 if(MSVC)
   target_compile_options(simple_renderer PRIVATE /W4 /permissive-)

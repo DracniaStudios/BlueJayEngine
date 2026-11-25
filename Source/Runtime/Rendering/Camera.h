@@ -22,6 +22,11 @@ public:
 		pitch = std::clamp(pitch + dPitch, -1.55f, 1.55f);  // stay just under +-90 degrees
 	}
 
+	// Rotates a world-space direction into view space (ignores the camera position).
+	Vector3 ToViewSpace(Vector3 direction) const {
+		return TransformPoint(RotationX(-pitch) * RotationY(-yaw), direction);
+	}
+
 	// Inverse of the camera's world transform T(pos) * Ry(yaw) * Rx(pitch).
 	Matrix4x4 View() const {
 		return RotationX(-pitch) * RotationY(-yaw) * Translation(position * -1.0f);
