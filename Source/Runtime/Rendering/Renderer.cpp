@@ -15,11 +15,11 @@ ClipVertex LerpClip(const ClipVertex& a, const ClipVertex& b, float t) {
 int ClipNear(const ClipVertex in[3], ClipVertex out[4]) {
 	int n = 0;
 	for (int i = 0; i < 3; ++i) {
-		const ClipVertex& cur = in[i];
-		const ClipVertex& nxt = in[(i + 1) % 3];
-		const bool curIn = cur.z >= 0.0f, nxtIn = nxt.z >= 0.0f;
-		if (curIn) out[n++] = cur;
-		if (curIn != nxtIn) out[n++] = LerpClip(cur, nxt, cur.z / (cur.z - nxt.z));
+		const ClipVertex& current = in[i];
+		const ClipVertex& next = in[(i + 1) % 3];
+		const bool currentInverse = current.z >= 0.0f, nextInverse = next.z >= 0.0f;
+		if (currentInverse) out[n++] = current;
+		if (currentInverse != nextInverse) out[n++] = LerpClip(current, next, current.z / (current.z - next.z));
 	}
 	return n;
 }
@@ -27,9 +27,9 @@ int ClipNear(const ClipVertex in[3], ClipVertex out[4]) {
 } // namespace
 
 void Renderer::Clear(uint32_t argb) {
-	std::fill(color_.begin(), color_.end(), argb);
-	std::fill(depth_.begin(), depth_.end(), 1.0f);
-	scratch_.reset();  // everything allocated last frame is gone in O(1)
+	std::fill(color.begin(), color.end(), argb);
+	std::fill(depth.begin(), depth.end(), 1.0f);
+	pixelAllocator.reset();  // everything allocated last frame is gone in O(1)
 }
 
 void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model, 
@@ -41,7 +41,7 @@ void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model,
 
 	// Per-frame clip-space vertex buffer lives in the BlueJay arena.
 	auto* clipVertex = static_cast<ClipVertex*>(
-		scratch_.allocate(mesh.vertices.size() * sizeof(ClipVertex), alignof(ClipVertex)));
+		pixelAllocator.allocate(mesh.vertices.size() * sizeof(ClipVertex), alignof(ClipVertex)));
 
 	for (size_t i = 0; i < mesh.vertices.size(); ++i) {
 		float w;
@@ -52,11 +52,11 @@ void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model,
 	// Clip space -> screen space (perspective divide + viewport transform).
 	auto toScreen = [&](const ClipVertex& v) {
 		const float inverseW = 1.0f / v.w;
-		return ScreenVertex{ (v.x * inverseW * 0.5f + 0.5f) * float(width_),
-			(1.0f - (v.y * inverseW * 0.5f + 0.5f)) * float(height_), v.z * inverseW };
+		return ScreenVertex{ (v.x * inverseW * 0.5f + 0.5f) * float(width),
+			(1.0f - (v.y * inverseW * 0.5f + 0.5f)) * float(height), v.z * inverseW };
 	};
 
-	for (const Triangle& t : mesh.tris) {
+	for (const Triangle& t : mesh.triangles) {
 
 		// Face normal in view space, for culling and lighting.
 		const Vector3 vertexA = TransformPoint(modelView, mesh.vertices[size_t(t.a)]);
@@ -102,9 +102,9 @@ void Renderer::FillTriangle(const ScreenVertex& a, const ScreenVertex& b,
 	const float inverseVertexArea = 1.0f / area;
 
 	const int minX = std::max(0, int(std::floor(std::min({ a.x, b.x, c.x }))));
-	const int maxX = std::min(width_ - 1, int(std::ceil(std::max({ a.x, b.x, c.x }))));
+	const int maxX = std::min(width - 1, int(std::ceil(std::max({ a.x, b.x, c.x }))));
 	const int minY = std::max(0, int(std::floor(std::min({ a.y, b.y, c.y }))));
-	const int maxY = std::min(height_ - 1, int(std::ceil(std::max({ a.y, b.y, c.y }))));
+	const int maxY = std::min(height - 1, int(std::ceil(std::max({ a.y, b.y, c.y }))));
 
 	for (int y = minY; y <= maxY; ++y) {
 		for (int x = minX; x <= maxX; ++x) {
@@ -115,11 +115,11 @@ void Renderer::FillTriangle(const ScreenVertex& a, const ScreenVertex& b,
 			
 			if (w0 < 0 || w1 < 0 || w2 < 0) continue;
 			const float z = w0 * a.z + w1 * b.z + w2 * c.z;
-			const size_t idx = size_t(y) * size_t(width_) + size_t(x);
+			const size_t idx = size_t(y) * size_t(width) + size_t(x);
 			
-			if (z < depth_[idx]) {
-				depth_[idx] = z;
-				color_[idx] = argb;
+			if (z < depth[idx]) {
+				depth[idx] = z;
+				color[idx] = argb;
 			}
 		}
 	}

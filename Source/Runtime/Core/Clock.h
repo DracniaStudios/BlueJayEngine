@@ -7,11 +7,15 @@
 // Frame timer. Tick() returns the seconds since the previous Tick().
 class Clock {
 public:
+
+	float DeltaTime = 0;
+
 	float Tick() {
 		const auto now = std::chrono::steady_clock::now();
-		const float dt = std::chrono::duration<float>(now - last_).count();
+		const float deltaTime = std::chrono::duration<float>(now - last_).count();
 		last_ = now;
-		return dt;
+		DeltaTime = deltaTime;
+		return deltaTime;
 	}
 
 private:

@@ -19,7 +19,7 @@ struct AppConfig {
 class Game {
 public:
 	virtual ~Game() = default;
-	virtual bool Update(float dt) = 0;          // return false to quit
+	virtual bool Update(float deltaTime) = 0;          // return false to quit
 	virtual void Render(Renderer& renderer) = 0;
 };
 
