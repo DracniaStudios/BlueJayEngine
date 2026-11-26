@@ -4,17 +4,17 @@
 
 namespace {
 
-struct ClipVertex { float x, y, z, w; };
+	struct ClipVertex { float x, y, z, w; };
 
-ClipVertex LerpClip(const ClipVertex& a, const ClipVertex& b, float t) {
-	return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+	ClipVertex LerpClip(const ClipVertex& a, const ClipVertex& b, float t) {
+		return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
 	         a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t };
-}
+	}
 
-// Sutherland-Hodgman against the near plane. Perspective() maps the near plane
-// to clip depth 0, so a vertex is inside when z >= 0 (which also implies w > 0).
-// A triangle clipped by one plane yields at most 4 vertices; returns the count.
-int ClipNear(const ClipVertex in[3], ClipVertex out[4]) {
+	// Sutherland-Hodgman against the near plane. Perspective() maps the near plane
+	// to clip depth 0, so a vertex is inside when z >= 0 (which also implies w > 0).
+	// A triangle clipped by one plane yields at most 4 vertices; returns the count.
+	int ClipNear(const ClipVertex in[3], ClipVertex out[4]) {
 	int n = 0;
 	for (int i = 0; i < 3; ++i) {
 		const ClipVertex& current = in[i];

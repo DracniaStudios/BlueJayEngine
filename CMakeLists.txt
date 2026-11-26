@@ -18,7 +18,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Archive")  # static libs
 # Defaults are chosen so that importing BlueJay from a game (add_subdirectory
 # or FetchContent) adds ONLY the library: no tests, no install rules.
 # ---------------------------------------------------------------------------
-option(BLUEJAY_BUILD_TESTS "Build the BlueJay tests" ON)
+option(BLUEJAY_BUILD_TESTS "Build the BlueJay tests" OFF)
 option(BLUEJAY_BUILD_EXAMPLES "Build the example programs in examples/" ON)
 option(BLUEJAY_INSTALL "Generate install rules and find_package(BlueJay) files" ${PROJECT_IS_TOP_LEVEL})
 option(BLUEJAY_HEADLESS
@@ -78,11 +78,12 @@ include (CheckIPOSupported)
 check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
 if (ipo_supported)
 	message (STATUS "IPO / LTO enabled")
+	#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)# LINK time optimization
 	if (PRODUCTION_BUILD)
-	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)# LINK time optimization
-	else()
-	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
-	endif()
+	    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+        else()
+	    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
+    endif()
 else()
 	message(WARNING "IPO / LTO not supported: ${ipo_error}")
 endif()

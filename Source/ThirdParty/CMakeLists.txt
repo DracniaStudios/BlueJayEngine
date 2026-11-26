@@ -21,7 +21,7 @@ endif()
 # Several vendored projects still declare cmake_minimum_required(< 3.5).
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-option(BLUEJAY_ENABLE_PROFILING "Compile Tracy instrumentation in (TRACY_ENABLE)" OFF)
+option(BLUEJAY_ENABLE_PROFILING "Compile Tracy instrumentation in (TRACY_ENABLE)" ON)
 set(BLUEJAY_ENABLE_NETWORKING "AUTO" CACHE STRING
   "Build GameNetworkingSockets (needs Protobuf; OpenSSL on non-Windows): AUTO, ON or OFF")
 set_property(CACHE BLUEJAY_ENABLE_NETWORKING PROPERTY STRINGS AUTO ON OFF)

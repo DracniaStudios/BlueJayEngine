@@ -65,7 +65,7 @@ void SpinningShapes::Render(Renderer& renderer) {
 	renderer.Clear(0xFF14181F);
 	renderer.DrawMesh(cube_, Translation({ -2.0f, 0, 0 }) * RotationY(angle_) * RotationX(angle_ * 0.6f),
 	                  view, proj_, lightDir);
-	renderer.DrawMesh(pyramid_, Translation({ 2.2f, 0, 0 }) * RotationY(-angle_ * 1.3f), view, proj_,
+	renderer.DrawMesh(pyramid_, Translation({ 2.0f, 0, 0 }) * RotationY(-angle_ * 1.3f), view, proj_,
 	                  lightDir);
 
 	for (int i = 0; i < 10; i++) {

@@ -11,8 +11,8 @@ struct SDL_Renderer;
 struct SDL_Texture;
 
 namespace {
-	constexpr int SCREEN_WIDTH = 1280;
-	constexpr int SCREEN_HEIGHT = 720;
+	constexpr int SCREEN_WIDTH = 640;
+	constexpr int SCREEN_HEIGHT = 320;
 }
 
 class Window {
