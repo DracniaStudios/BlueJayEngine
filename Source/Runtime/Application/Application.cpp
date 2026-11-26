@@ -29,6 +29,7 @@ int Run(const AppConfig& config, Game& game) {
 	// Renderer Data
 	Renderer renderer(SCREEN_WIDTH, SCREEN_HEIGHT);
 	Clock clock;
+	FixedTimestep fixedStep(config.fixedUpdateRate);
 	bool running = true;
 
 	// Frame Profiler
@@ -59,6 +60,12 @@ int Run(const AppConfig& config, Game& game) {
 			ZoneScopedN("Update");
 			inputSystem.Update();
 			if (!game.Update(deltaTime)) { running = false; }
+		}
+		{
+			ZoneScopedN("FixedUpdate");
+			fixedStep.Accumulate(deltaTime);
+			while (fixedStep.Step()) { game.FixedUpdate(fixedStep.StepSeconds()); }
+			game.fixedAlpha_ = fixedStep.Alpha();
 		}
 		{
 			ZoneScopedN("Render");

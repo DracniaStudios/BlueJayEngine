@@ -1,5 +1,6 @@
 #include "SpinningShapes.h"
 
+#include <Core/FrameStats.h>
 #include <InputSystem/InputSystem.h>
 
 #include <algorithm>
@@ -41,12 +42,16 @@ namespace {
 SpinningShapes::SpinningShapes(int width, int height)
 	: proj_(Perspective(60.0f * kPi / 180.0f, float(width) / float(height), 0.1f, 100.0f)) {}
 
+void SpinningShapes::FixedUpdate(float fixedDt) {
+	prevAngle_ = angle_;
+	if (!paused_) { angle_ += fixedDt; }
+}
+
 bool SpinningShapes::Update(float dt) {
 	namespace Inp = InputSystem;
 	Inp::InputSystem& input = Inp::InputSystem::getInstance();
 
 	if (input.IsActionPressed(Inp::ACTION_MOVE_INTERACT)) { paused_ = !paused_; }
-	if (!paused_) { angle_ += dt; }
 	if (flyThrough_) {
 		flyTime_ += dt;
 		FollowPath(camera_, flyTime_);
@@ -62,14 +67,18 @@ void SpinningShapes::Render(Renderer& renderer) {
 	const Matrix4x4 view = camera_.View();
 	const Vector3 lightDir = camera_.ToViewSpace(lightWorld_);  // light stays fixed in the world
 
+	// The spin advances at the fixed rate; blend the last two ticks so it stays smooth
+	// at any frame rate.
+	const float angle = prevAngle_ + (angle_ - prevAngle_) * FixedAlpha();
+
 	renderer.Clear(0xFF14181F);
-	renderer.DrawMesh(cube_, Translation({ -2.0f, 0, 0 }) * RotationY(angle_) * RotationX(angle_ * 0.6f),
+	renderer.DrawMesh(cube_, Translation({ -2.0f, 0, 0 }) * RotationY(angle) * RotationX(angle * 0.6f),
 	                  view, proj_, lightDir);
-	renderer.DrawMesh(pyramid_, Translation({ 2.2f, 0, 0 }) * RotationY(-angle_ * 1.3f), view, proj_,
+	renderer.DrawMesh(pyramid_, Translation({ 2.2f, 0, 0 }) * RotationY(-angle * 1.3f), view, proj_,
 	                  lightDir);
 
 	for (int i = 0; i < 10; i++) {
-		renderer.DrawMesh(cube_, Translation({ i * 3.0f - 10, 0, -5 }) * RotationY(-angle_ * 1.3f), view, proj_,
+		renderer.DrawMesh(cube_, Translation({ i * 3.0f - 10, 0, -5 }) * RotationY(-angle * 1.3f), view, proj_,
 		                  lightDir);
 	}
 }
