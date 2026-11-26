@@ -38,6 +38,16 @@
             }
         },
         {
+            "name": "x64-profile",
+            "displayName": "x64 Profile (Tracy)",
+            "description": "Optimized build with debug info and Tracy instrumentation, for frame-time measurements.",
+            "inherits": "x64-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "BLUEJAY_ENABLE_PROFILING": "ON"
+            }
+        },
+        {
             "name": "x86-debug",
             "displayName": "x86 Debug",
             "inherits": "windows-base",

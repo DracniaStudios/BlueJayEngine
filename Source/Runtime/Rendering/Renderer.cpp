@@ -1,5 +1,7 @@
 #include "Renderer.h"
 
+#include <tracy/Tracy.hpp>
+
 namespace {
 
 struct ClipVertex { float x, y, z, w; };
@@ -27,15 +29,17 @@ int ClipNear(const ClipVertex in[3], ClipVertex out[4]) {
 } // namespace
 
 void Renderer::Clear(uint32_t argb) {
+	ZoneScoped;
 	std::fill(color.begin(), color.end(), argb);
 	std::fill(depth.begin(), depth.end(), 1.0f);
 	pixelAllocator.reset();  // everything allocated last frame is gone in O(1)
 }
 
-void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model, 
+void Renderer::DrawMesh(const Mesh& mesh, const Matrix4x4& model,
 	const Matrix4x4& view, const Matrix4x4& proj,
 	Vector3 lightDir) {
 
+	ZoneScoped;
 	const Matrix4x4 modelView = view * model;
 	const Matrix4x4 clip = proj * modelView;
 

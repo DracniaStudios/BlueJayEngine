@@ -19,9 +19,11 @@
 
 #include "SpinningShapes.h"
 
+#include <iostream>
 #include <string>
+#include <string_view>
 
-int main() {
+int main(int argc, char* argv[]) {
 	namespace Inp = InputSystem;
 
 	AppConfig config;
@@ -37,5 +39,22 @@ int main() {
 		Inp::ACTION_UI_PAUSE };
 
 	SpinningShapes game(SCREEN_WIDTH, SCREEN_HEIGHT);
+	
+	// Command-line arguments
+	for (int i = 1; i < argc; ++i) {
+		const std::string_view arg = argv[i];
+
+		if (arg == "--flythrough") {
+			// Benchmark: follow the scripted camera path for 30 s, then write frametimes.csv.
+			config.benchmarkSeconds = 30.0f;
+			config.runName = "flythrough";
+			game.EnableFlyThrough();
+		}
+		else {
+			std::cerr << "Unknown argument: " << arg << "\nUsage: SimpleRenderer [--flythrough]\n";
+			return 1;
+		}
+	}
+	
 	return Run(config, game);
 }

@@ -11,6 +11,7 @@ public:
 
 	bool Update(float dt) override;
 	void Render(Renderer& renderer) override;
+	void EnableFlyThrough() override;
 
 private:
 	const Mesh cube_ = MakeCube();
@@ -21,4 +22,6 @@ private:
 	CameraController controller_;
 	float angle_ = 0.0f;
 	bool paused_ = false;
+	bool flyThrough_ = false;  // camera follows a fixed path, move/look input is ignored
+	float flyTime_ = 0.0f;
 };

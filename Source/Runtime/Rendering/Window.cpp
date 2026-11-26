@@ -1,6 +1,7 @@
 #include "Window.h"
 
 #include <SDL3/SDL.h>
+#include <tracy/Tracy.hpp>
 
 #include <cstdio>
 
@@ -47,6 +48,7 @@ void Window::Shutdown() {
 }
 
 void Window::Present(const uint32_t* pixels) {
+	ZoneScoped;
 	SDL_UpdateTexture(sdlTexture, nullptr, pixels, SCREEN_WIDTH * int(sizeof(uint32_t)));
 	SDL_RenderClear(sdlRenderer);
 	SDL_RenderTexture(sdlRenderer, sdlTexture, nullptr, nullptr);
